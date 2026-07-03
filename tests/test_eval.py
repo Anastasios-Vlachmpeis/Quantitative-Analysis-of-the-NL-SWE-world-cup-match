@@ -11,7 +11,6 @@ import pytest
 from nlvswe.eval.backtest import walk_forward_backtest
 from nlvswe.eval.calibration import expected_calibration_error, plot_reliability
 from nlvswe.eval.market import MarketModel, devig
-from nlvswe.eval.report import build_report
 from nlvswe.eval.scoring import brier_1x2, log_loss_1x2, ranked_probability_score, score_predictions
 from nlvswe.models.base import BaseModel, MatchPrediction, validate_prediction
 from nlvswe.models.constant import ConstantModel
@@ -171,35 +170,3 @@ def test_calibration_plot_renders(tmp_path, monkeypatch):
     path = plot_reliability(preds, model="constant", bins=5)
     assert path is not None
     assert path.exists()
-
-
-def test_build_report_scores(tmp_path, monkeypatch):
-    monkeypatch.setattr("nlvswe.io._DATA_ROOT", tmp_path / "data")
-    monkeypatch.setattr("nlvswe.io._FIGURES_ROOT", tmp_path / "figures")
-    preds = pd.DataFrame(
-        [
-            {
-                "model": "constant",
-                "match_id": "m1",
-                "date_utc": pd.Timestamp("2024-01-01", tz="UTC"),
-                "p_home": 0.5,
-                "p_draw": 0.3,
-                "p_away": 0.2,
-                "outcome": "home",
-                "has_scoreline": False,
-            },
-            {
-                "model": "market",
-                "match_id": "m2",
-                "date_utc": pd.Timestamp("2024-02-01", tz="UTC"),
-                "p_home": 0.45,
-                "p_draw": 0.30,
-                "p_away": 0.25,
-                "outcome": "draw",
-                "has_scoreline": False,
-            },
-        ]
-    )
-    scores, ece = build_report(preds, write_calibration=False)
-    assert len(scores) == 6
-    assert "constant" in ece

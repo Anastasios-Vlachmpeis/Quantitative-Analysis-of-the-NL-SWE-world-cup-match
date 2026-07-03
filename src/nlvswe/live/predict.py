@@ -108,6 +108,7 @@ def build_live_features_row(cfg: AppConfig) -> tuple[pd.DataFrame, pd.Series]:
         conditions,
         venues,
         form_windows=list(cfg.model.form_windows),
+        fifa_max_age_days=cfg.data.fifa_max_age_days,
     )
     feat["date_utc"] = kickoff
 
@@ -118,6 +119,7 @@ def build_live_features_row(cfg: AppConfig) -> tuple[pd.DataFrame, pd.Series]:
         venues,
         form_windows=list(cfg.model.form_windows),
         corpus=CORPUS_INTERNATIONAL,
+        fifa_max_age_days=cfg.data.fifa_max_age_days,
     )
     batch_row = batch[batch["match_id"].astype(str) == str(target["match_id"])]
     if not batch_row.empty:

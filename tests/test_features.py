@@ -203,11 +203,29 @@ def test_fifa_pre_strictly_before_kickoff(tiny_tables):
     assert feat["away_fifa_points_pre"] == 1800.0
 
 
+def test_fifa_available_false_when_rating_stale(tiny_tables):
+    matches, ratings, conditions, venues = tiny_tables
+    target = matches[matches["match_id"] == "m4"].iloc[0]
+    feat = features_for_match(target, matches, ratings, conditions, venues, form_windows=[5, 10], fifa_max_age_days=400)
+    assert feat["home_fifa_points_pre"] == 1800.0
+    assert feat["away_fifa_points_pre"] == 1700.0
+    assert feat["fifa_available"] is False
+
+
+def test_fifa_available_true_when_rating_fresh(tiny_tables):
+    matches, ratings, conditions, venues = tiny_tables
+    target = matches[matches["match_id"] == "m2"].iloc[0]
+    feat = features_for_match(target, matches, ratings, conditions, venues, form_windows=[5, 10], fifa_max_age_days=400)
+    assert feat["fifa_available"] is True
+
+
 def test_features_for_match_equals_batch_row(tiny_tables):
     matches, ratings, conditions, venues = tiny_tables
-    batch = build_features(matches, ratings, conditions, venues, form_windows=[5, 10])
+    batch = build_features(matches, ratings, conditions, venues, form_windows=[5, 10], fifa_max_age_days=400)
     target = matches[matches["match_id"] == "m4"].iloc[0]
-    single = features_for_match(target, matches, ratings, conditions, venues, form_windows=[5, 10])
+    single = features_for_match(
+        target, matches, ratings, conditions, venues, form_windows=[5, 10], fifa_max_age_days=400
+    )
     batch_row = batch[batch["match_id"] == "m4"].iloc[0]
     _assert_feature_row_equal(batch_row, single)
 
@@ -227,13 +245,22 @@ def test_batch_vs_single_parity_on_real_matches():
         venues,
         form_windows=form_windows,
         corpus=CORPUS,
+        fifa_max_age_days=cfg.data.fifa_max_age_days,
     )
     batch_by_id = batch.set_index("match_id", drop=False)
 
     for _, row in sample.iterrows():
         match_id = str(row["match_id"])
         assert match_id in batch_by_id.index, f"{match_id} missing from batch build"
-        single = features_for_match(row, matches, ratings, conditions, venues, form_windows=form_windows)
+        single = features_for_match(
+            row,
+            matches,
+            ratings,
+            conditions,
+            venues,
+            form_windows=form_windows,
+            fifa_max_age_days=cfg.data.fifa_max_age_days,
+        )
         _assert_feature_row_equal(batch_by_id.loc[match_id], single)
 
 

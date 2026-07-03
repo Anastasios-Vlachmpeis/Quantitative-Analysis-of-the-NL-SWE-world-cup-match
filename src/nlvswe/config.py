@@ -107,6 +107,7 @@ class DataConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     history_start: str
+    fifa_max_age_days: int = 400
     corpus: DataCorpus
     sources: DataSources
     include_xg: bool

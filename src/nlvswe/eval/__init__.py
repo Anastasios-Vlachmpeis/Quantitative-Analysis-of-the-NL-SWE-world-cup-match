@@ -2,7 +2,6 @@
 
 from nlvswe.eval.calibration import expected_calibration_error, plot_reliability, reliability_curve
 from nlvswe.eval.market import MarketModel, devig
-from nlvswe.eval.report import build_report
 from nlvswe.eval.scoring import (
     brier_1x2,
     log_loss_1x2,
@@ -13,7 +12,6 @@ from nlvswe.eval.scoring import (
 __all__ = [
     "MarketModel",
     "brier_1x2",
-    "build_report",
     "devig",
     "expected_calibration_error",
     "log_loss_1x2",

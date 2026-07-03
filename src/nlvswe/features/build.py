@@ -99,10 +99,22 @@ def _rest_stats(history: pd.DataFrame, team_id: str, before: pd.Timestamp) -> di
     return {"days_since_last": float(days), "matches_30d": matches_30d}
 
 
+def _fifa_is_fresh(rating_date: pd.Timestamp, kickoff: pd.Timestamp, max_age_days: int) -> bool:
+    age_days = (kickoff - pd.Timestamp(rating_date).tz_convert("UTC")).total_seconds() / 86400.0
+    return age_days <= max_age_days
+
+
+def _fifa_available(home: dict, away: dict) -> bool:
+    """True only when both sides have a pre-kickoff FIFA row within max_age_days."""
+    return bool(home.get("present") and away.get("present") and home.get("fresh") and away.get("fresh"))
+
+
 def _fifa_pre(
     ratings: pd.DataFrame,
     team_id: str,
     before: pd.Timestamp,
+    *,
+    max_age_days: int = 400,
 ) -> dict[str, float | int | None | bool]:
     fifa = ratings[
         (ratings["source"] == "fifa")
@@ -111,12 +123,14 @@ def _fifa_pre(
         & (ratings["rating_date"] < before)
     ]
     if fifa.empty:
-        return {"points": None, "rank": None, "available": False}
+        return {"points": None, "rank": None, "present": False, "fresh": False}
     row = fifa.sort_values("rating_date", kind="mergesort").iloc[-1]
+    rating_date = pd.Timestamp(row["rating_date"]).tz_convert("UTC")
     return {
         "points": float(row["value"]),
         "rank": int(row["rank"]) if pd.notna(row.get("rank")) else None,
-        "available": True,
+        "present": True,
+        "fresh": _fifa_is_fresh(rating_date, before, max_age_days),
     }
 
 
@@ -151,6 +165,7 @@ def features_for_match(
     venues: pd.DataFrame,
     *,
     form_windows: list[int],
+    fifa_max_age_days: int = 400,
 ) -> dict[str, Any]:
     """One match's features from history strictly before its kickoff."""
     kickoff = pd.Timestamp(match_row["date_utc"]).tz_convert("UTC")
@@ -175,8 +190,8 @@ def features_for_match(
         "elo_diff": float(home_elo - away_elo),
     }
 
-    hf = _fifa_pre(ratings, home_id, kickoff)
-    af = _fifa_pre(ratings, away_id, kickoff)
+    hf = _fifa_pre(ratings, home_id, kickoff, max_age_days=fifa_max_age_days)
+    af = _fifa_pre(ratings, away_id, kickoff, max_age_days=fifa_max_age_days)
     feat["home_fifa_points_pre"] = hf["points"]
     feat["away_fifa_points_pre"] = af["points"]
     feat["home_fifa_rank_pre"] = hf["rank"]
@@ -187,7 +202,7 @@ def features_for_match(
     feat["fifa_rank_diff"] = (
         float(af["rank"] - hf["rank"]) if hf["rank"] is not None and af["rank"] is not None else None
     )
-    feat["fifa_available"] = bool(hf["available"] and af["available"])
+    feat["fifa_available"] = _fifa_available(hf, af)
 
     for k in form_windows:
         hform = _form_stats(history_view, home_id, kickoff, k)
@@ -253,18 +268,26 @@ def _index_fifa_ratings(ratings: pd.DataFrame) -> dict[str, pd.DataFrame]:
     }
 
 
-def _fifa_pre_indexed(fifa_idx: dict[str, pd.DataFrame], team_id: str, before: pd.Timestamp) -> dict:
+def _fifa_pre_indexed(
+    fifa_idx: dict[str, pd.DataFrame],
+    team_id: str,
+    before: pd.Timestamp,
+    *,
+    max_age_days: int = 400,
+) -> dict:
     grp = fifa_idx.get(team_id)
     if grp is None or grp.empty:
-        return {"points": None, "rank": None, "available": False}
+        return {"points": None, "rank": None, "present": False, "fresh": False}
     sub = grp[grp["rating_date"] < before]
     if sub.empty:
-        return {"points": None, "rank": None, "available": False}
+        return {"points": None, "rank": None, "present": False, "fresh": False}
     row = sub.iloc[-1]
+    rating_date = pd.Timestamp(row["rating_date"]).tz_convert("UTC")
     return {
         "points": float(row["value"]),
         "rank": int(row["rank"]) if pd.notna(row.get("rank")) else None,
-        "available": True,
+        "present": True,
+        "fresh": _fifa_is_fresh(rating_date, before, max_age_days),
     }
 
 
@@ -314,6 +337,7 @@ def build_features(
     *,
     form_windows: list[int] | None = None,
     corpus: str = CORPUS_INTERNATIONAL,
+    fifa_max_age_days: int = 400,
 ) -> pd.DataFrame:
     """Batch feature table in chronological order (O(n), no post-kickoff leakage)."""
     form_windows = form_windows or [5, 10]
@@ -351,8 +375,8 @@ def build_features(
             "elo_diff": float(home_elo - away_elo),
         }
 
-        hf = _fifa_pre_indexed(fifa_idx, home_id, kickoff)
-        af = _fifa_pre_indexed(fifa_idx, away_id, kickoff)
+        hf = _fifa_pre_indexed(fifa_idx, home_id, kickoff, max_age_days=fifa_max_age_days)
+        af = _fifa_pre_indexed(fifa_idx, away_id, kickoff, max_age_days=fifa_max_age_days)
         feat["home_fifa_points_pre"] = hf["points"]
         feat["away_fifa_points_pre"] = af["points"]
         feat["home_fifa_rank_pre"] = hf["rank"]
@@ -363,7 +387,7 @@ def build_features(
         feat["fifa_rank_diff"] = (
             float(af["rank"] - hf["rank"]) if hf["rank"] is not None and af["rank"] is not None else None
         )
-        feat["fifa_available"] = bool(hf["available"] and af["available"])
+        feat["fifa_available"] = _fifa_available(hf, af)
 
         _append_form_features(feat, team_records[home_id], team_records[away_id], form_windows)
 
@@ -447,6 +471,7 @@ def write_features_md(df: pd.DataFrame, path: Path) -> None:
         "away_elo_pre": "Self-computed Elo before kickoff (away)",
         "elo_diff": "home_elo_pre - away_elo_pre",
         "home_fifa_points_pre": "Latest FIFA points before kickoff",
+        "fifa_available": "Both sides have FIFA points within data.fifa_max_age_days of kickoff",
         "fifa_points_diff": "home - away FIFA points",
         "form_ppg_diff_5": "Points-per-game form diff (last 5)",
         "form_ppg_diff_10": "Points-per-game form diff (last 10)",
@@ -554,6 +579,7 @@ def run_build(cfg: AppConfig | None = None) -> pd.DataFrame:
         conditions,
         venues,
         form_windows=cfg.model.form_windows,
+        fifa_max_age_days=cfg.data.fifa_max_age_days,
     )
     df = _prepare_features(df)
     validate_table(df, "features")

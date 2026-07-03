@@ -23,6 +23,7 @@ target_match:
 # ---------------------------------------------------------------------------
 data:
   history_start: "2006-01-01"   # backtest window start (DECISION: see Plan 02 §6)
+  fifa_max_age_days: 400         # fifa_available=False when latest rating is older than this at kickoff
 
   # Backtest corpus split — RESOLVED Hybrid (Plan 02 §6). Machine-readable so code
   # can route data correctly. Goal models train/eval on internationals; betting
