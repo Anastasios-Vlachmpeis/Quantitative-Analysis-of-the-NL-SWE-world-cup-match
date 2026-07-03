@@ -17,7 +17,12 @@ if TYPE_CHECKING:
 
 
 def set_seeds(seed: int) -> None:
-    """Seed python and numpy RNGs for deterministic runs."""
+    """Seed Python, NumPy, and PYTHONHASHSEED for deterministic runs.
+
+    PyMC is out of scope here (and the M6 model is cut until Plan 15). If it
+    comes back, pass random_seed into pm.sample; that is where PyMC determinism
+    actually lives, not in this function.
+    """
     random.seed(seed)
     np.random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)

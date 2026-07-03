@@ -4,7 +4,7 @@
 # Secrets are NEVER stored here: only the NAME of the env var holding them.
 # =============================================================================
 
-seed: 20260619          # global seed (python/numpy/pymc). See repro.set_seeds.
+seed: 20260619          # python/numpy only; see repro.set_seeds (not PyMC)
 scope: live          # "history" (walk-forward backtest) | "live" (the match)
 
 # ---------------------------------------------------------------------------
