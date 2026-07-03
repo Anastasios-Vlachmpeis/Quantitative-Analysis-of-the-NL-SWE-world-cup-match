@@ -3,15 +3,64 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 
+from nlvswe.config import load_config
 from nlvswe.features.build import build_features, features_for_match
-from nlvswe.ratings.elo import elo_pre_at_kickoff
+from nlvswe.io import read_table
 from nlvswe.schemas import validate_table
 
 CORPUS = "international"
+INTERIM = "interim"
+PARITY_SAMPLE_SIZE = 30
+_INTERIM_DIR = Path("data") / INTERIM
+_HAS_REAL_INTERIM = (
+    (_INTERIM_DIR / "matches.parquet").exists()
+    and (_INTERIM_DIR / "matches.manifest.json").exists()
+    and (_INTERIM_DIR / "ratings.parquet").exists()
+    and (_INTERIM_DIR / "ratings.manifest.json").exists()
+)
+
+
+def _assert_feature_row_equal(batch_row: pd.Series, single: dict[str, Any]) -> None:
+    """Batch row and features_for_match dict must match on every column."""
+    for col in batch_row.index:
+        bv = batch_row[col]
+        sv = single[col]
+        both_missing = pd.isna(bv) and (sv is None or pd.isna(sv))
+        if both_missing:
+            continue
+        assert bv == sv, f"mismatch on {col}: batch={bv!r} single={sv!r}"
+
+
+def _real_interim_tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    matches = read_table("matches", INTERIM)
+    ratings = read_table("ratings", INTERIM)
+    try:
+        conditions = read_table("conditions", INTERIM)
+    except FileNotFoundError:
+        conditions = pd.DataFrame(
+            columns=["match_id", "kickoff_local", "temp_c", "humidity", "weather", "altitude_m"]
+        )
+    try:
+        venues = read_table("venues", INTERIM)
+    except FileNotFoundError:
+        venues = pd.DataFrame(
+            columns=["venue_id", "name", "city", "country_code", "lat", "lon", "altitude_m", "capacity"]
+        )
+    return matches, ratings, conditions, venues
+
+
+def _parity_sample_matches(matches: pd.DataFrame, n: int = PARITY_SAMPLE_SIZE) -> pd.DataFrame:
+    intl = matches[matches["corpus"] == CORPUS].sort_values(["date_utc", "match_id"], kind="mergesort")
+    if len(intl) < n:
+        pytest.skip(f"need at least {n} international matches in interim data, got {len(intl)}")
+    idx = np.linspace(0, len(intl) - 1, n, dtype=int)
+    return intl.iloc[idx].reset_index(drop=True)
 
 
 def _tiny_matches() -> pd.DataFrame:
@@ -160,11 +209,32 @@ def test_features_for_match_equals_batch_row(tiny_tables):
     target = matches[matches["match_id"] == "m4"].iloc[0]
     single = features_for_match(target, matches, ratings, conditions, venues, form_windows=[5, 10])
     batch_row = batch[batch["match_id"] == "m4"].iloc[0]
-    for col in batch.columns:
-        bv, sv = batch_row[col], single[col]
-        if pd.isna(bv) and pd.isna(sv):
-            continue
-        assert bv == sv, f"mismatch on {col}: batch={bv} single={sv}"
+    _assert_feature_row_equal(batch_row, single)
+
+
+@pytest.mark.skipif(not _HAS_REAL_INTERIM, reason="requires data/interim matches + ratings")
+def test_batch_vs_single_parity_on_real_matches():
+    """~30 real intl fixtures: build_features row must equal features_for_match."""
+    matches, ratings, conditions, venues = _real_interim_tables()
+    cfg = load_config()
+    form_windows = list(cfg.model.form_windows)
+    sample = _parity_sample_matches(matches)
+
+    batch = build_features(
+        matches,
+        ratings,
+        conditions,
+        venues,
+        form_windows=form_windows,
+        corpus=CORPUS,
+    )
+    batch_by_id = batch.set_index("match_id", drop=False)
+
+    for _, row in sample.iterrows():
+        match_id = str(row["match_id"])
+        assert match_id in batch_by_id.index, f"{match_id} missing from batch build"
+        single = features_for_match(row, matches, ratings, conditions, venues, form_windows=form_windows)
+        _assert_feature_row_equal(batch_by_id.loc[match_id], single)
 
 
 def test_non_nullable_features_present(tiny_tables):
