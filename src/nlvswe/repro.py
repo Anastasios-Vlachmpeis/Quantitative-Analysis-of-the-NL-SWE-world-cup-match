@@ -17,23 +17,10 @@ if TYPE_CHECKING:
 
 
 def set_seeds(seed: int) -> None:
-    """Seed python, numpy, and pymc/pytensor RNGs for deterministic runs."""
+    """Seed python and numpy RNGs for deterministic runs."""
     random.seed(seed)
     np.random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
-    try:
-        import pymc as pm
-
-        if hasattr(pm, "set_rng"):
-            pm.set_rng(seed)
-    except ImportError:
-        pass
-    try:
-        from pytensor.tensor.random import default_rng
-
-        default_rng(seed)
-    except ImportError:
-        pass
 
 
 def git_commit() -> str:
