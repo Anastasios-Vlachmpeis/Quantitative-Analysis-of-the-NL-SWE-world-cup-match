@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pandera as pa
-from pandera import Check
+import pandera.pandas as pa
+from pandera.pandas import Check
 
 if TYPE_CHECKING:
     import pandas as pd

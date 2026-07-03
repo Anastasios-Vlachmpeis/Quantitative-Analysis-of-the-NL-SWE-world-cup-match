@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 
 
 def set_seeds(seed: int) -> None:
-    """Seed Python, NumPy, and PYTHONHASHSEED for deterministic runs.
+    """
+    Seed Python, NumPy, and PYTHONHASHSEED for deterministic runs.
 
     PyMC is out of scope here (and the M6 model is cut until Plan 15). If it
     comes back, pass random_seed into pm.sample; that is where PyMC determinism
@@ -29,7 +30,8 @@ def set_seeds(seed: int) -> None:
 
 
 def git_commit() -> str:
-    """Return short git commit hash, or 'nogit' if unavailable."""
+    
+    #Return short git commit hash, or 'nogit' if unavailable
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -51,7 +53,8 @@ def run_manifest(
     schema_name: str | None = None,
     config_hash: str | None = None,
 ) -> dict[str, Any]:
-    """Build a run manifest dict for artifact sidecars."""
+    
+    #Build a run manifest dict for artifact sidecars
     manifest: dict[str, Any] = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "git_commit": git_commit(),
@@ -68,5 +71,6 @@ def run_manifest(
 
 
 def stable_json_dumps(obj: Any) -> str:
-    """Serialize JSON with stable key ordering for hashing."""
+    
+    #Serialize JSON with stable key ordering for hashing
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)

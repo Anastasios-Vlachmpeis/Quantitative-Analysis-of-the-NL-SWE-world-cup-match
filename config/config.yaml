@@ -4,8 +4,8 @@
 # Secrets are NEVER stored here: only the NAME of the env var holding them.
 # =============================================================================
 
-seed: 20260619          # python/numpy only; see repro.set_seeds (not PyMC)
-scope: live          # "history" (walk-forward backtest) | "live" (the match)
+seed: 20260619          # python/numpy only; see repro.set_seeds
+scope: history       # "history" (walk-forward backtest) | "live" (the match)
 
 # ---------------------------------------------------------------------------
 # The match we are predicting (scope=live applies the pipeline here once)
