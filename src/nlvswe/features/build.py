@@ -12,12 +12,12 @@ from nlvswe.config import AppConfig, get_config, load_config, project_root
 from collections import defaultdict, deque
 
 from nlvswe.features.conditions import conditions_for_match, is_knockout_stage
-from nlvswe.features.ratings import (
+from nlvswe.ratings.elo import (
     CORPUS_INTERNATIONAL,
-    _apply_elo_update,
+    EloParams,
+    apply_update,
     elo_pre_at_kickoff,
 )
-from nlvswe.ratings.elo import EloParams
 from nlvswe.io import read_table, write_table
 from nlvswe.plotting.eda import run_feature_eda
 from nlvswe.logging import get_logger
@@ -408,7 +408,7 @@ def build_features(
         rows.append(feat)
 
         if m["status"] == "completed" and pd.notna(m.get("home_goals")):
-            _apply_elo_update(m, elo_state, params)
+            apply_update(m, elo_state, params)
             hg, ag = int(m["home_goals"]), int(m["away_goals"])
             for team_id, is_home in ((home_id, True), (away_id, False)):
                 pts = _team_points(hg, ag, for_home=is_home)

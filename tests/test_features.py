@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from nlvswe.features.build import build_features, features_for_match
-from nlvswe.features.ratings import elo_pre_at_kickoff
+from nlvswe.ratings.elo import elo_pre_at_kickoff
 from nlvswe.schemas import validate_table
 
 CORPUS = "international"
