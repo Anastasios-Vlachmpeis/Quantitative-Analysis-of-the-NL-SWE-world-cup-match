@@ -8,7 +8,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nlvswe.models._goals_common import fit_importance_adjustments, fit_poisson_strengths, predict_lambdas
+from nlvswe.models._goals_common import (
+    PoissonStrengths,
+    fit_importance_adjustments,
+    fit_poisson_strengths,
+    predict_lambdas,
+    shrink_poisson_strengths,
+    team_effective_weights,
+)
 from nlvswe.models.dixon_coles_v2 import DixonColesV2Model
 from nlvswe.models.match_importance import (
     FRIENDLY,
@@ -117,3 +124,69 @@ def test_dixon_coles_v2_lowers_tournament_lambdas_vs_v1_on_same_fixture():
     )
     assert adj_lh + adj_la < base_lh + base_la
     assert math.exp(shift) < 1.0 or shift <= 0.0
+
+
+def test_shrinkage_pulls_thin_sample_teams_toward_zero():
+    strengths = PoissonStrengths(
+        intercept=0.0,
+        home_adv=0.2,
+        attack={"sampled": 0.6, "sparse": 0.6},
+        defense={"sampled": -0.4, "sparse": -0.4},
+    )
+    appear = {"sampled": 36.0, "sparse": 1.5}
+    shrunk = shrink_poisson_strengths(strengths, appear, prior_matches=8.0)
+    assert abs(shrunk.attack["sparse"]) < abs(strengths.attack["sparse"])
+    assert abs(shrunk.attack["sampled"]) > abs(shrunk.attack["sparse"])
+
+
+def test_shrinkage_tames_favourite_attack_from_lopsided_qualifiers():
+    rng = np.random.default_rng(3)
+    rows = []
+    for i in range(30):
+        hg = int(rng.poisson(3.8))
+        ag = int(rng.poisson(0.4))
+        rows.append(
+            {
+                "match_id": f"q{i}",
+                "date_utc": pd.Timestamp("2022-01-01", tz="UTC") + pd.Timedelta(days=i),
+                "corpus": CORPUS,
+                "competition": "World Cup qualification UEFA",
+                "stage": "Group A",
+                "home_team_id": "favourite",
+                "away_team_id": "minnow",
+                "neutral": True,
+                "is_knockout": False,
+                "home_goals": hg,
+                "away_goals": ag,
+                "result_1x2": "home",
+            }
+        )
+    for i in range(6):
+        hg = int(rng.poisson(1.0))
+        ag = int(rng.poisson(1.0))
+        rows.append(
+            {
+                "match_id": f"f{i}",
+                "date_utc": pd.Timestamp("2022-02-01", tz="UTC") + pd.Timedelta(days=i),
+                "corpus": CORPUS,
+                "competition": "International Friendly",
+                "stage": None,
+                "home_team_id": "favourite",
+                "away_team_id": "peer",
+                "neutral": True,
+                "is_knockout": False,
+                "home_goals": hg,
+                "away_goals": ag,
+                "result_1x2": "draw",
+            }
+        )
+    train = pd.DataFrame(rows)
+    train["date_utc"] = pd.to_datetime(train["date_utc"], utc=True).astype("datetime64[ns, UTC]")
+    raw = fit_poisson_strengths(train, half_life_days=365)
+    appear = team_effective_weights(train, half_life_days=365)
+    shrunk = shrink_poisson_strengths(raw, appear, prior_matches=8.0)
+    assert raw.attack["minnow"] < 0.0
+    assert abs(shrunk.attack["minnow"]) < abs(raw.attack["minnow"])
+    raw_lh, _ = predict_lambdas(raw, "favourite", "peer", neutral=True)
+    shrunk_lh, _ = predict_lambdas(shrunk, "favourite", "peer", neutral=True)
+    assert shrunk_lh <= raw_lh
