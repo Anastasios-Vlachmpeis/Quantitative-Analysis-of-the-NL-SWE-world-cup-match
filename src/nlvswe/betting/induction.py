@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -109,6 +109,7 @@ def markets_from_matrix(
     matrix: np.ndarray,
     *,
     market_cfg: MarketConfig | None = None,
+    totals_calibrators: dict[float, Callable[[float], float]] | None = None,
 ) -> list[dict]:
     """Analytic market probabilities from a scoreline matrix."""
     cfg = market_cfg or default_market_config()
@@ -137,6 +138,8 @@ def markets_from_matrix(
             for j in range(g):
                 if i + j > line:
                     over += mat[i, j]
+        if totals_calibrators and line in totals_calibrators:
+            over = float(np.clip(totals_calibrators[line](over), 0.0, 1.0))
         under = 1.0 - over
         rows.append({"market": f"totals_{line}", "selection": "over", "model_prob": float(over), "method": "analytic"})
         rows.append({"market": f"totals_{line}", "selection": "under", "model_prob": float(under), "method": "analytic"})
@@ -346,10 +349,11 @@ def induce_row_markets(
     p_draw: float,
     p_away: float,
     scoreline: np.ndarray | None,
+    totals_calibrators: dict[float, Callable[[float], float]] | None = None,
 ) -> list[dict]:
     """Build market rows for one match."""
     if scoreline is not None:
-        analytic = markets_from_matrix(scoreline)
+        analytic = markets_from_matrix(scoreline, totals_calibrators=totals_calibrators)
         for row in analytic:
             row.update({"match_id": match_id, "model": model})
         return analytic

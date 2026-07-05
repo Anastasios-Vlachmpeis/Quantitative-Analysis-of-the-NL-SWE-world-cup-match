@@ -198,17 +198,27 @@ def predict_live(
     target_row: pd.Series,
     train: pd.DataFrame,
     odds: pd.DataFrame,
-) -> MatchPrediction:
+) -> tuple[MatchPrediction, object | None]:
     if model_name == ENSEMBLE_WEIGHTED:
-        return predict_ensemble_weighted(cfg, target_row, train, odds)
+        return predict_ensemble_weighted(cfg, target_row, train, odds), None
     model = create_model(model_name, cfg, odds)
     model.fit(train)
     pred = model.predict(target_row)
     validate_prediction(pred)
-    return pred
+    return pred, model
 
 
-def induce_live_markets(pred: MatchPrediction, model_name: str) -> pd.DataFrame:
+def induce_live_markets(
+    pred: MatchPrediction,
+    model_name: str,
+    *,
+    model: object | None = None,
+) -> pd.DataFrame:
+    calibrators = None
+    if model is not None:
+        getter = getattr(model, "totals_calibrators", None)
+        if callable(getter):
+            calibrators = getter() or None
     rows = induce_row_markets(
         match_id=pred.match_id,
         model=model_name,
@@ -216,6 +226,7 @@ def induce_live_markets(pred: MatchPrediction, model_name: str) -> pd.DataFrame:
         p_draw=pred.probs_1x2["draw"],
         p_away=pred.probs_1x2["away"],
         scoreline=pred.scoreline,
+        totals_calibrators=calibrators,
     )
     df = pd.DataFrame(rows)
     df["model_prob"] = df["model_prob"].astype("float64")
@@ -402,7 +413,7 @@ def run_live_predict(
         odds = pd.DataFrame()
 
     target_feat = features.iloc[0]
-    pred = predict_live(model_name, cfg, target_feat, train, odds)
+    pred, fitted = predict_live(model_name, cfg, target_feat, train, odds)
     pred_row = prediction_to_row(pred, model=model_name, match=target_feat)
     preds_df = pd.DataFrame([pred_row]).drop(columns=["outcome"], errors="ignore")
     preds_df["date_utc"] = pd.to_datetime(preds_df["date_utc"], utc=True).astype("datetime64[ns, UTC]")
@@ -411,7 +422,7 @@ def run_live_predict(
     preds_df = validate_table(preds_df, "live_predictions")
     write_table(preds_df, "predictions", LIVE_SUBDIR, sort_by=["match_id"], plan=PLAN, schema_name="live_predictions")
 
-    market_probs = induce_live_markets(pred, model_name)
+    market_probs = induce_live_markets(pred, model_name, model=fitted)
     write_table(
         market_probs,
         "market_probs",
