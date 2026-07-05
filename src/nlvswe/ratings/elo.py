@@ -1,9 +1,8 @@
-"""Chronological Elo over international results (cleaning, featurizing, and the Elo model).
-
-Defaults: 1500 for unseen teams, K=20, +100 home advantage in expectation,
-ln-margin multiplier on updates. Each row is dated at kickoff so you can't
-accidentally leak the score.
-"""
+# Chronological Elo over international results (cleaning, featurizing, and the Elo model).
+#
+# Defaults: 1500 for unseen teams, K=20, +100 home advantage in expectation,
+# ln-margin multiplier on updates. Each row is dated at kickoff so you can't
+# accidentally leak the score.
 
 from __future__ import annotations
 
@@ -18,7 +17,6 @@ HOME_ADVANTAGE = 100.0
 GOAL_MARGIN_MULTIPLIER = 2.0 / 3.0
 
 CORPUS_INTERNATIONAL = "international"
-
 
 @dataclass(frozen=True)
 class EloParams:
@@ -39,7 +37,7 @@ def margin_multiplier(goal_diff: int, params: EloParams) -> float:
 
 
 def apply_update(m: pd.Series, ratings: dict[str, float], params: EloParams) -> None:
-    """Apply one completed match result to the in-memory rating state."""
+    # Apply one completed match result to the in-memory rating state.
     home_id = m["home_team_id"]
     away_id = m["away_team_id"]
     home_goals = int(m["home_goals"])
@@ -77,7 +75,7 @@ def elo_pre_at_kickoff(
     *,
     params: EloParams | None = None,
 ) -> tuple[float, float]:
-    """Pre-kickoff Elo for home/away using only history with date_utc < kickoff."""
+    # Pre-kickoff Elo for home/away using only history with date_utc < kickoff.
     params = params or EloParams()
     kickoff = pd.Timestamp(match_row["date_utc"]).tz_convert("UTC")
     prior = history[
@@ -103,7 +101,7 @@ def compute_elo_pre_table(
     *,
     params: EloParams | None = None,
 ) -> pd.DataFrame:
-    """Return match_id, home_elo_pre, away_elo_pre for every completed intl match."""
+    # Return match_id, home_elo_pre, away_elo_pre for every completed intl match.
     params = params or EloParams()
     ratings: dict[str, float] = {}
     rows: list[dict] = []
@@ -130,7 +128,7 @@ def roll_elo(
     *,
     params: EloParams | None = None,
 ) -> pd.DataFrame:
-    """Return long-format post-match ratings (source='elo') from completed matches."""
+    # Return long-format post-match ratings (source='elo') from completed matches.
     params = params or EloParams()
     required = {"date_utc", "home_team_id", "away_team_id", "home_goals", "away_goals", "neutral", "status"}
     missing = required - set(matches.columns)

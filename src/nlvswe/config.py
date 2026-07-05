@@ -1,4 +1,4 @@
-"""Load and validate config.yaml (pydantic)."""
+# Load and validate config.yaml (pydantic).
 
 from __future__ import annotations
 
@@ -150,6 +150,20 @@ class BettingMarkets(BaseModel):
     correct_score_top_n: int
 
 
+class ClvCaptureWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    before_kickoff_hours: float
+    interval_minutes: int
+
+
+class ClvCaptureConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_requests_remaining: int = 10
+    windows: list[ClvCaptureWindow]
+
+
 class BettingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -161,6 +175,7 @@ class BettingConfig(BaseModel):
     flat_stake_control: bool = True
     bookmakers: list[str]
     markets: BettingMarkets
+    clv_capture: ClvCaptureConfig
 
 
 class AppConfig(BaseModel):
@@ -184,7 +199,7 @@ def _project_root() -> Path:
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
-    """Load and validate config.yaml."""
+    # Load and validate config.yaml.
     if path is None:
         path = _project_root() / "config" / "config.yaml"
     path = Path(path)
@@ -195,12 +210,12 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 
 @lru_cache(maxsize=1)
 def get_config() -> AppConfig:
-    """Return cached config (default path)."""
+    # Return cached config (default path).
     return load_config()
 
 
 def config_hash(cfg: AppConfig) -> str:
-    """Stable sha256 of the normalized config dict."""
+    # Stable sha256 of the normalized config dict.
     normalized = cfg.model_dump(mode="json")
     payload = yaml.dump(normalized, sort_keys=True, default_flow_style=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

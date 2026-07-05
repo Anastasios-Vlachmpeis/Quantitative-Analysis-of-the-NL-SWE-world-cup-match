@@ -109,3 +109,12 @@ betting:
     totals_lines: []
     ah_lines: []
     correct_score_top_n: 10   # top-N exact scores + an "other" bucket
+  clv_capture:
+    min_requests_remaining: 10   # stop polling when API header falls below this
+    windows:
+      - before_kickoff_hours: 48
+        interval_minutes: 360      # every 6h from T-48h
+      - before_kickoff_hours: 6
+        interval_minutes: 60       # every 1h from T-6h
+      - before_kickoff_hours: 1
+        interval_minutes: 15       # every 15min from T-1h
