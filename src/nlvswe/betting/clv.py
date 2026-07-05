@@ -17,18 +17,25 @@ def clv_odds_ratio(odds_taken: float, odds_closing: float) -> float:
     return float(odds_taken / odds_closing - 1.0)
 
 
+_1X2_ORDER = ("home", "draw", "away")
+
+
 def clv_prob_diff(
     model_prob: float,
     closing_odds: float,
     *,
     devig_method: str = "multiplicative",
     all_closing_odds: list[float] | None = None,
+    selection: str | None = None,
 ) -> float:
-    # CLV as model prob minus de-vigged closing implied prob for the selection
-    if all_closing_odds is not None and len(all_closing_odds) >= 2:
+    # CLV as model prob minus de-vigged closing implied prob for the selection.
+    #
+    # all_closing_odds must be ordered home/draw/away and selection names which
+    # entry belongs to this bet. Looking the entry up BY PRICE would silently pick
+    # the wrong selection whenever two outcomes close at the same odds.
+    if all_closing_odds is not None and len(all_closing_odds) == 3 and selection in _1X2_ORDER:
         probs = devig(np.asarray(all_closing_odds, dtype=float), method=devig_method)  # type: ignore[arg-type]
-        idx = all_closing_odds.index(closing_odds) if closing_odds in all_closing_odds else 0
-        closing_prob = float(probs[idx])
+        closing_prob = float(probs[_1X2_ORDER.index(selection)])
     else:
         closing_prob = 1.0 / closing_odds if closing_odds > 1.0 else float("nan")
     return float(model_prob - closing_prob)
@@ -142,6 +149,7 @@ def clv_report(
                     odds_closing,
                     devig_method=devig_method,
                     all_closing_odds=all_close,
+                    selection=key[3],
                 )
 
         row.update(
