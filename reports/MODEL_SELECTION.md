@@ -3,7 +3,7 @@
 **Criterion:** Lowest walk-forward RPS on common match set with acceptable calibration
 
 **Selected model:** `ensemble_weighted`
-**Walk-forward RPS:** 0.1795 (95% CI 0.1778–0.1811)
+**Walk-forward RPS:** 0.1791 (95% CI 0.1774–0.1808)
 
 ## Market benchmark
 
@@ -13,8 +13,8 @@ Market predictions not available for comparison.
 
 | Rank | Model | RPS | 95% CI | Accuracy (footnote) |
 |------|-------|-----|--------|---------------------|
-| 1 | `ensemble_weighted` | 0.1795 | [0.1778, 0.1811] | 58.9% |
-| 2 | `ensemble_avg` | 0.1800 | [0.1784, 0.1816] | 58.9% |
+| 1 | `ensemble_weighted` | 0.1791 | [0.1774, 0.1808] | 58.8% |
+| 2 | `ensemble_avg` | 0.1798 | [0.1781, 0.1814] | 58.8% |
 | 3 | `poisson` | 0.1805 | [0.1782, 0.1827] | 57.9% |
 | 4 | `dixon_coles` | 0.1806 | [0.1783, 0.1828] | 57.8% |
 | 5 | `dixon_coles_v2` | 0.1836 | [0.1819, 0.1852] | 58.1% |
