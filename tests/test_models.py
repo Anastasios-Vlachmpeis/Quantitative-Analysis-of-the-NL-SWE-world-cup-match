@@ -16,6 +16,7 @@ from nlvswe.models.baseline import BaselineModel
 from nlvswe.models.bivariate_poisson import BivariatePoissonModel
 from nlvswe.models.data import assert_international_only
 from nlvswe.models.dixon_coles import DixonColesModel
+from nlvswe.models.dixon_coles_v2 import DixonColesV2Model
 from nlvswe.models.elo import EloModel
 from nlvswe.models.ml import MLModel
 from nlvswe.models.poisson import PoissonModel
@@ -49,6 +50,7 @@ def _synthetic_features(n: int = 60, *, seed: int = 0) -> pd.DataFrame:
                 "date_utc": pd.Timestamp("2020-01-01", tz="UTC") + pd.Timedelta(days=i * 7),
                 "corpus": CORPUS,
                 "competition": "Friendly",
+                "stage": None,
                 "home_team_id": home,
                 "away_team_id": away,
                 "neutral": neutral,
@@ -91,6 +93,7 @@ def predict_row(train_df):
         (EloModel, {"seed": 0}),
         (PoissonModel, {"max_goals": 5}),
         (DixonColesModel, {"max_goals": 5}),
+        (DixonColesV2Model, {"max_goals": 5}),
         (BivariatePoissonModel, {"max_goals": 5}),
         (MLModel, {"seed": 0, "max_iter": 30}),
     ],

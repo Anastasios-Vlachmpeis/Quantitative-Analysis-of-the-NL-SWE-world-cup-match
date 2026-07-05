@@ -120,6 +120,8 @@ FEATURES_SCHEMA = pa.DataFrameSchema(
         "match_id": pa.Column(str, unique=True, nullable=False),
         "date_utc": pa.Column("datetime64[ns, UTC]", nullable=False),
         "corpus": pa.Column(str, CORPUS_CHECK, nullable=False),
+        "competition": pa.Column(str, nullable=True, required=False),
+        "stage": pa.Column(str, nullable=True, required=False),
         "home_team_id": pa.Column(str, nullable=False),
         "away_team_id": pa.Column(str, nullable=False),
         "neutral": pa.Column(bool, nullable=False),
