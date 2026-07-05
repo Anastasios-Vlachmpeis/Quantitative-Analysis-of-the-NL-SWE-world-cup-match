@@ -172,19 +172,37 @@ def test_odds_live_timestamped_snapshot(raw_root, monkeypatch):
     monkeypatch.setenv("ODDS_API_KEY", FAKE_API_KEY)
 
     class FakeResp:
+        headers: dict[str, str] = {}
+
         def json(self):
             return json.loads((FIXTURES / "odds_live_sample.json").read_text())
 
     monkeypatch.setattr(acquire, "get", lambda url, **kw: FakeResp())
 
     captured = datetime(2026, 6, 19, 12, 0, tzinfo=timezone.utc)
-    path = fetch_odds_live(cfg, captured_at=captured)
-    assert path.name == "20260619T120000Z.json"
-    manifest = _manifest_for(path)
+    snapshot = fetch_odds_live(cfg, captured_at=captured)
+    assert snapshot.path.name == "20260619T120000Z.json"
+    manifest = _manifest_for(snapshot.path)
     assert manifest["captured_at"] == "2026-06-19T12:00:00+00:00"
     assert manifest["source"] == "odds_live"
-    assert FAKE_API_KEY not in path.read_text()
+    assert FAKE_API_KEY not in snapshot.path.read_text()
     assert FAKE_API_KEY not in json.dumps(manifest)
+
+
+def test_fetch_odds_live_reads_quota_headers(raw_root, monkeypatch):
+    tmp_path, cfg = raw_root
+    monkeypatch.setenv("ODDS_API_KEY", FAKE_API_KEY)
+
+    class FakeResp:
+        headers = {"x-requests-remaining": "42", "x-requests-used": "458"}
+
+        def json(self):
+            return json.loads((FIXTURES / "odds_live_sample.json").read_text())
+
+    monkeypatch.setattr(acquire, "get", lambda url, **kw: FakeResp())
+    snapshot = fetch_odds_live(cfg)
+    assert snapshot.requests_remaining == 42
+    assert snapshot.requests_used == 458
 
 
 def test_no_secret_in_manifests_or_raw(raw_root, monkeypatch):
@@ -200,6 +218,8 @@ def test_no_secret_in_manifests_or_raw(raw_root, monkeypatch):
     monkeypatch.setattr(acquire, "download_bytes", fake_download)
 
     class FakeResp:
+        headers: dict[str, str] = {}
+
         def json(self):
             return []
 
