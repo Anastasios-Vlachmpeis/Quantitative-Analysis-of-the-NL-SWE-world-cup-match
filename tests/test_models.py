@@ -21,7 +21,7 @@ from nlvswe.models.data import assert_international_only
 from nlvswe.models.dixon_coles import DixonColesModel
 from nlvswe.models.dixon_coles_v2 import DixonColesV2Model
 from nlvswe.models.elo import EloModel
-from nlvswe.models.ml import MLModel
+from nlvswe.models.ml import MLModel, ML_FEATURE_COLUMNS
 from nlvswe.models.poisson import PoissonModel
 from nlvswe.models.base import validate_prediction
 
@@ -191,6 +191,15 @@ def test_international_corpus_guard():
     bad = pd.DataFrame({"corpus": ["club", "international"]})
     with pytest.raises(ValueError, match="corpus"):
         assert_international_only(bad)
+
+
+def test_ml_feature_importance_summary(train_df):
+    model = MLModel(seed=0, max_iter=30)
+    model.fit(train_df)
+    summary = model.feature_importance_summary(train_df, sample_size=40, n_repeats=2)
+    assert summary is not None
+    assert len(summary["features"]) == len(ML_FEATURE_COLUMNS)
+    assert summary["features"][0]["mean"] >= summary["features"][-1]["mean"]
 
 
 def test_scoreline_matrix_normalization():
