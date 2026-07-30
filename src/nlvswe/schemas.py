@@ -326,6 +326,42 @@ BET_SLIP_SCHEMA = pa.DataFrameSchema(
     name="bet_slip",
 )
 
+LIVE_RESULTS_SCHEMA = pa.DataFrameSchema(
+    {
+        "match_id": pa.Column(str, nullable=False),
+        "model": pa.Column(str, nullable=False),
+        "captured_at": pa.Column("datetime64[ns, UTC]", nullable=False),
+        "kickoff_utc": pa.Column("datetime64[ns, UTC]", nullable=False),
+        "bookmaker": pa.Column(str, nullable=True, required=False),
+        "market": pa.Column(str, nullable=True, required=False),
+        "selection": pa.Column(str, nullable=True, required=False),
+        "model_prob": pa.Column(float, Check.in_range(0.0, 1.0), nullable=True, required=False),
+        "book_prob_devig": pa.Column(float, Check.in_range(0.0, 1.0), nullable=True, required=False),
+        "edge": pa.Column(float, nullable=True, required=False),
+        "ev": pa.Column(float, nullable=True, required=False),
+        "odds_taken": pa.Column(float, nullable=True, required=False),
+        "stake_method": pa.Column(str, Check.isin(["kelly", "flat"]), nullable=False),
+        "stake": pa.Column(float, Check.ge(0.0), nullable=False),
+        "status": pa.Column(str, Check.isin(["bet", "no_bet"]), nullable=False),
+        "rationale": pa.Column(str, nullable=False),
+        "home_goals": pa.Column("Int64", Check.ge(0), nullable=False),
+        "away_goals": pa.Column("Int64", Check.ge(0), nullable=False),
+        "outcome_1x2": pa.Column(str, Check.isin(["home", "draw", "away"]), nullable=False),
+        "bet_result": pa.Column(
+            str, Check.isin(["win", "lose", "push", "half_win", "half_lose"]), nullable=False
+        ),
+        "pnl": pa.Column(float, nullable=False),
+        "odds_closing": pa.Column(float, nullable=True, required=False),
+        "closing_captured_at": pa.Column("datetime64[ns, UTC]", nullable=True, required=False),
+        "clv_odds_ratio": pa.Column(float, nullable=True, required=False),
+        "clv_prob_diff": pa.Column(float, nullable=True, required=False),
+        "measurable": pa.Column(bool, nullable=False),
+        "clv_note": pa.Column(str, nullable=False),
+    },
+    strict=True,
+    name="live_results",
+)
+
 CANONICAL_SCHEMAS: dict[str, pa.DataFrameSchema] = {
     "teams": TEAMS_SCHEMA,
     "venues": VENUES_SCHEMA,
@@ -344,6 +380,7 @@ CANONICAL_SCHEMAS: dict[str, pa.DataFrameSchema] = {
     "bankroll_sim": BANKROLL_SIM_SCHEMA,
     "live_predictions": LIVE_PREDICTIONS_SCHEMA,
     "bet_slip": BET_SLIP_SCHEMA,
+    "live_results": LIVE_RESULTS_SCHEMA,
 }
 
 for _name, _schema in CANONICAL_SCHEMAS.items():
