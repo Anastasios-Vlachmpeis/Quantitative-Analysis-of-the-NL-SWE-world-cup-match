@@ -45,7 +45,7 @@ Did anything beat the market? On internationals I can't really say, as there is 
 Every rung now has walk-forward predictions on disk. Rescoring the **19,500-match
 intersection** (all eleven models) gives this RPS ordering. Models whose confidence
 intervals overlap are tied; the big cluster from `ensemble_weighted` through `elo`
-is one such group, so rank order inside it is noise.
+is one such group, so rank order inside it is 'noise'.
 
 | Model | RPS | 95% CI |
 |---|---|---|
