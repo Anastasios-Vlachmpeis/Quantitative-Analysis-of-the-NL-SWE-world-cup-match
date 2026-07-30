@@ -66,6 +66,14 @@ smell in the feature-importance check. `bayesian` sits in the tied cluster near
 the top. `bivariate_poisson` is ~tied with `dixon_coles`, as expected. See
 `reports/MODEL_SELECTION.md` for the authoritative table and tie groups.
 
+One thing to read carefully: `ensemble_weighted` shows 0.177 here against 0.179 in
+the pre-match table, and that is **not** the same ensemble improving. The ensembles
+blend whichever member models exist, so completing the ladder handed them three new
+members (`bayesian`, `bivariate_poisson`, `ml`) and produced a different, better
+blend. The 0.179 version is the one that actually priced the bet; this 0.177 version
+never saw the match. `dixon_coles_v2` is deliberately excluded from both ensembles,
+since it is a failed experiment (Plan 14) rather than a ladder rung.
+
 ## From a scoreline to a bet
 
 A goal model gives a full grid of scoreline probabilities, which you sum into whatever market you care about. I computed each market two ways (exact summation, and a Monte Carlo over 10,000 simulated matches) and checked whether they agree within sampling error (they do). The picture for Netherlands vs Sweden: Netherlands clear favourites, most likely scoreline around 2-1, with an expected total near 3.7 goals.
