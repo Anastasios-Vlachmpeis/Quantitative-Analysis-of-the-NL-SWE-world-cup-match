@@ -77,9 +77,9 @@ model:
   refit_every: 10                # walk-forward: refit every N matches (speed vs acc)
   mc_samples: 10000              # Monte Carlo draws for induction/visuals (Plan 07)
   bayesian:
-    draws: 1000
-    tune: 1000
-    chains: 4
+    draws: 400          # capped for walk-forward budget (Plan 15 §2.2)
+    tune: 400
+    chains: 1
     target_accept: 0.9
 
 # ---------------------------------------------------------------------------

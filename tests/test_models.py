@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -13,6 +15,7 @@ from nlvswe.models._goals_common import (
     probs_1x2_from_scoreline,
 )
 from nlvswe.models.baseline import BaselineModel
+from nlvswe.models.bayesian import BayesianHierModel
 from nlvswe.models.bivariate_poisson import BivariatePoissonModel
 from nlvswe.models.data import assert_international_only
 from nlvswe.models.dixon_coles import DixonColesModel
@@ -153,6 +156,35 @@ def test_deterministic_predictions(train_df, predict_row):
     p1 = m1.predict(predict_row)
     p2 = m2.predict(predict_row)
     assert p1.probs_1x2 == p2.probs_1x2
+
+
+def test_bayesian_runs_on_tiny_dataset_within_budget():
+    train = _synthetic_features(35, seed=7)
+    row = train.iloc[-1]
+    model = BayesianHierModel(max_goals=4, draws=40, tune=40, chains=1, seed=123)
+    start = time.perf_counter()
+    model.fit(train)
+    pred = model.predict(row)
+    elapsed = time.perf_counter() - start
+    validate_prediction(pred)
+    assert elapsed < 120.0
+    summary = model.posterior_summary()
+    assert summary is not None
+    assert "mu" in summary
+    assert summary["teams"]
+
+
+def test_bayesian_deterministic_with_same_seed():
+    train = _synthetic_features(35, seed=8)
+    row = train.iloc[-1]
+    a = BayesianHierModel(max_goals=4, draws=30, tune=30, chains=1, seed=555)
+    b = BayesianHierModel(max_goals=4, draws=30, tune=30, chains=1, seed=555)
+    a.fit(train)
+    b.fit(train)
+    pa = a.predict(row)
+    pb = b.predict(row)
+    assert pa.probs_1x2["home"] == pytest.approx(pb.probs_1x2["home"])
+    assert pa.probs_1x2["draw"] == pytest.approx(pb.probs_1x2["draw"])
 
 
 def test_international_corpus_guard():

@@ -23,6 +23,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "joblib>=1.3",
     "pytest>=8.0",
+    "pymc>=5.10",
 ]
 
 [project.optional-dependencies]

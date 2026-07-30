@@ -32,5 +32,7 @@ pytest>=8.0            # tests
 # --- OPTIONAL: enable only if Plan 02 spike confirms xG coverage ---
 # soccerdata>=1.8      # FBref / understat scraping for xG
 
+# --- Bayesian hierarchical (M6, Plan 15) ---
+pymc>=5.10
+
 # --- REMOVED (Plan 12): arviz, tqdm, python-dateutil, statsmodels (zero import sites).
-# pymc + M6 bayesian model cut until Plan 15 (complete-the-ladder) runs walk-forward eval.
