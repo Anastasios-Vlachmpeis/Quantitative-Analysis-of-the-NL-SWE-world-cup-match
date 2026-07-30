@@ -184,6 +184,8 @@ class AppConfig(BaseModel):
     seed: int
     scope: Literal["history", "live"]
     target_match: TargetMatch
+    live_fixtures: str | None = None
+    target_matches: list[TargetMatch] | None = None
     data: DataConfig
     model: ModelConfig
     eval: EvalConfig

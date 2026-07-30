@@ -18,6 +18,9 @@ target_match:
   kickoff_utc: "2026-06-20T17:00:00Z"   # 18:00 BST (UTC+1) Sat 2026-06-20.
                         # Used as the as_of for live features + closing-line cutoff.
 
+# Optional fixture list for multi-match live runs (falls back to target_match when unset)
+live_fixtures: config/live_fixtures.csv
+
 # ---------------------------------------------------------------------------
 # Data
 # ---------------------------------------------------------------------------

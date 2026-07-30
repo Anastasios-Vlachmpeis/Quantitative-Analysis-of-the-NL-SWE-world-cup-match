@@ -175,6 +175,14 @@ def _finalize_results(df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["market", "selection", "bookmaker"], kind="mergesort").reset_index(drop=True)
 
 
+def _load_bet_slip_for_match(match_id: str) -> pd.DataFrame:
+    try:
+        return read_table(f"bet_slip_{match_id}", LIVE_SUBDIR)
+    except FileNotFoundError:
+        slip = read_table("bet_slip", LIVE_SUBDIR)
+        return slip[slip["match_id"].astype(str) == str(match_id)].copy()
+
+
 def run_settle(
     match_id: str,
     *,
@@ -196,9 +204,8 @@ def run_settle(
         home_goals, away_goals = parse_score(score)
         mark_match_completed(match_id, home_goals, away_goals, write=write_match)
 
-    bet_slip = read_table("bet_slip", LIVE_SUBDIR)
-    slip_rows = bet_slip[bet_slip["match_id"].astype(str) == str(match_id)]
-    if slip_rows.empty:
+    bet_slip = _load_bet_slip_for_match(match_id)
+    if bet_slip.empty:
         raise ValueError(f"No bet_slip rows for match_id={match_id!r}")
 
     try:
@@ -207,7 +214,7 @@ def run_settle(
         odds = pd.DataFrame()
 
     results = settle_bet_slip(
-        slip_rows,
+        bet_slip,
         home_goals=home_goals,
         away_goals=away_goals,
         odds=odds,

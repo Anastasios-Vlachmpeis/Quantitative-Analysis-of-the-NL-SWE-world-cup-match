@@ -1,9 +1,10 @@
-"""One-shot pre-match pipeline for NL vs SWE: features, prediction, slip, optional git freeze."""
+"""Pre-match pipeline: one or many fixtures, shared model fit, optional git freeze."""
 
 from __future__ import annotations
 
 import argparse
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,33 +14,43 @@ import pandas as pd
 
 from nlvswe.betting.induction import induce_row_markets, simulate_scorelines
 from nlvswe.betting.slip import build_live_bet_slip
-from nlvswe.config import AppConfig, get_config, load_config, project_root
+from nlvswe.config import AppConfig, TargetMatch, get_config, load_config, project_root
 from nlvswe.eval.backtest import prediction_to_row
-from nlvswe.eval.compare import align_predictions, common_match_ids
-from nlvswe.features.build import _prepare_features, build_features, features_for_match
 from nlvswe.io import read_table, save_figure, write_table
-from nlvswe.logging import get_logger
-from nlvswe.models.base import MatchPrediction, validate_prediction
-from nlvswe.models.data import load_model_features
-from nlvswe.models.ensemble import (
-    ENSEMBLE_WEIGHTED,
-    ensemble_members_available,
-    fit_inverse_rps_weights,
-    weighted_probs,
+from nlvswe.live.fixtures import (
+    fixture_kickoff,
+    load_live_fixtures,
+    matchday_tag,
+    resolve_fixture_match,
 )
-from nlvswe.models.registry import create_model
+from nlvswe.live.predictor import LivePredictor
+from nlvswe.logging import get_logger
+from nlvswe.models.base import MatchPrediction
+from nlvswe.models.data import load_model_features
+from nlvswe.models.ensemble import ENSEMBLE_WEIGHTED
 from nlvswe.plotting.theme import apply_theme, style_axes, style_figure
 from nlvswe.repro import git_commit, set_seeds
 from nlvswe.schemas import validate_table
 
 logger = get_logger(__name__)
 
-PLAN = "10"
+PLAN = "16"
 LIVE_SUBDIR = "processed/live"
 INTERIM = "interim"
 PROCESSED = "processed"
 REPORTS = "reports"
 CORPUS_INTERNATIONAL = "international"
+
+
+@dataclass
+class FixtureRunResult:
+    fixture: TargetMatch
+    match_id: str
+    kickoff: pd.Timestamp
+    features: pd.DataFrame
+    pred: MatchPrediction
+    market_probs: pd.DataFrame
+    bet_slip: pd.DataFrame
 
 
 def selected_model_name() -> str:
@@ -52,19 +63,11 @@ def selected_model_name() -> str:
 
 
 def kickoff_utc(cfg: AppConfig) -> pd.Timestamp:
-    ts = pd.Timestamp(cfg.target_match.kickoff_utc)
-    return ts.tz_convert("UTC") if ts.tzinfo else ts.tz_localize("UTC")
+    return fixture_kickoff(load_live_fixtures(cfg)[0])
 
 
 def resolve_target_match(matches: pd.DataFrame, cfg: AppConfig) -> pd.Series:
-    home = cfg.target_match.home.lower().replace(" ", "_")
-    away = cfg.target_match.away.lower().replace(" ", "_")
-    mask = (matches["home_team_id"] == home) & (matches["away_team_id"] == away)
-    sub = matches[mask].sort_values("date_utc", kind="mergesort")
-    if sub.empty:
-        raise ValueError(f"Target match not found in matches table: {cfg.target_match.home} vs {cfg.target_match.away}")
-    scheduled = sub[sub["status"].astype(str) == "scheduled"]
-    return scheduled.iloc[-1] if not scheduled.empty else sub.iloc[-1]
+    return resolve_fixture_match(matches, load_live_fixtures(cfg)[0])
 
 
 def refresh_live_inputs(cfg: AppConfig) -> None:
@@ -89,14 +92,19 @@ def refresh_live_inputs(cfg: AppConfig) -> None:
     clean.main(["--table", "odds"])
 
 
-def build_live_features_row(cfg: AppConfig) -> tuple[pd.DataFrame, pd.Series]:
-    """Same features_for_match path as the backtest, then sanity-check against the batch table."""
-    matches = read_table("matches", INTERIM)
-    ratings = read_table("ratings", INTERIM)
-    conditions = read_table("conditions", INTERIM)
-    venues = read_table("venues", INTERIM)
-    target = resolve_target_match(matches, cfg)
-    kickoff = kickoff_utc(cfg)
+def build_live_features_for_fixture(
+    fixture: TargetMatch,
+    cfg: AppConfig,
+    *,
+    matches: pd.DataFrame,
+    ratings: pd.DataFrame,
+    conditions: pd.DataFrame,
+    venues: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.Series]:
+    from nlvswe.features.build import _prepare_features, build_features, features_for_match
+
+    target = resolve_fixture_match(matches, fixture)
+    kickoff = fixture_kickoff(fixture)
 
     intl = matches[matches["corpus"] == CORPUS_INTERNATIONAL].sort_values(
         ["date_utc", "match_id"], kind="mergesort"
@@ -139,73 +147,15 @@ def build_live_features_row(cfg: AppConfig) -> tuple[pd.DataFrame, pd.Series]:
     return validate_table(df, "features"), target
 
 
-def _load_member_prediction_frames() -> dict[str, pd.DataFrame]:
-    root = project_root() / "data" / PROCESSED
-    frames: dict[str, pd.DataFrame] = {}
-    for path in sorted(root.glob("predictions_*.parquet")):
-        name = path.stem.replace("predictions_", "")
-        if name.startswith("ensemble"):
-            continue
-        try:
-            frames[name] = read_table(f"predictions_{name}", PROCESSED)
-        except FileNotFoundError:
-            pass
-    return frames
-
-
-def predict_ensemble_weighted(
-    cfg: AppConfig,
-    target_row: pd.Series,
-    train: pd.DataFrame,
-    odds: pd.DataFrame,
-) -> MatchPrediction:
-    """Fit each member on pre-kickoff history, blend with inverse-RPS weights from walk-forward preds."""
-    member_frames = _load_member_prediction_frames()
-    members = ensemble_members_available(member_frames)
-    if len(members) < 2:
-        raise ValueError("Need at least two member models for ensemble_weighted live prediction")
-
-    kickoff = kickoff_utc(cfg)
-    match_ids = common_match_ids({m: member_frames[m] for m in members})
-    stacked = align_predictions({m: member_frames[m] for m in members}, match_ids)
-    hist = stacked[pd.to_datetime(stacked["date_utc"], utc=True) < kickoff]
-    weights = fit_inverse_rps_weights(hist, members)
-
-    parts: list[dict[str, float]] = []
-    scoreline = None
-    for name in members:
-        model = create_model(name, cfg, odds)
-        model.fit(train)
-        member_pred = model.predict(target_row)
-        parts.append(member_pred.probs_1x2)
-        if scoreline is None and member_pred.scoreline is not None:
-            scoreline = member_pred.scoreline
-
-    probs = weighted_probs(parts, [weights[m] for m in members])
-
-    pred = MatchPrediction(
-        match_id=str(target_row["match_id"]),
-        scoreline=scoreline,
-        probs_1x2=probs,
+def build_live_features_row(cfg: AppConfig) -> tuple[pd.DataFrame, pd.Series]:
+    matches = read_table("matches", INTERIM)
+    ratings = read_table("ratings", INTERIM)
+    conditions = read_table("conditions", INTERIM)
+    venues = read_table("venues", INTERIM)
+    fixture = load_live_fixtures(cfg)[0]
+    return build_live_features_for_fixture(
+        fixture, cfg, matches=matches, ratings=ratings, conditions=conditions, venues=venues
     )
-    validate_prediction(pred)
-    return pred
-
-
-def predict_live(
-    model_name: str,
-    cfg: AppConfig,
-    target_row: pd.Series,
-    train: pd.DataFrame,
-    odds: pd.DataFrame,
-) -> tuple[MatchPrediction, object | None]:
-    if model_name == ENSEMBLE_WEIGHTED:
-        return predict_ensemble_weighted(cfg, target_row, train, odds), None
-    model = create_model(model_name, cfg, odds)
-    model.fit(train)
-    pred = model.predict(target_row)
-    validate_prediction(pred)
-    return pred, model
 
 
 def induce_live_markets(
@@ -289,6 +239,88 @@ def plot_live_edges(bet_slip: pd.DataFrame) -> None:
     plt.close(fig)
 
 
+def write_predictions_md(
+    *,
+    cfg: AppConfig,
+    model_name: str,
+    results: list[FixtureRunResult],
+    commit_hash: str,
+    path: Path,
+) -> None:
+    title = "Pre-match predictions"
+    if len(results) == 1:
+        fx = results[0].fixture
+        title = f"Pre-match prediction — {fx.home} vs {fx.away}"
+
+    lines = [
+        f"# {title}",
+        "",
+        f"**Generated (UTC):** {datetime.now(timezone.utc).isoformat()}",
+        f"**Git commit:** `{commit_hash}`",
+        f"**Model:** `{model_name}`",
+        f"**Fixtures priced:** {len(results)}",
+        "",
+    ]
+
+    for run in results:
+        fx = run.fixture
+        pred = run.pred
+        features = run.features
+        bet_slip = run.bet_slip
+        lines.extend(
+            [
+                f"## {fx.home} vs {fx.away} (`{run.match_id}`)",
+                "",
+                f"**Kickoff (UTC):** {run.kickoff.isoformat()}",
+                "",
+                "### 1X2 probabilities",
+                "",
+                f"| Home ({fx.home}) | Draw | Away ({fx.away}) |",
+                "|---|---|---|",
+                f"| {pred.probs_1x2['home']:.1%} | {pred.probs_1x2['draw']:.1%} | {pred.probs_1x2['away']:.1%} |",
+                "",
+                "### Key features (pre-kickoff)",
+                "",
+            ]
+        )
+        row = features.iloc[0]
+        for col in ("home_elo_pre", "away_elo_pre", "elo_diff", "fifa_points_diff", "form_ppg_diff_5", "neutral"):
+            if col in row.index:
+                lines.append(f"- **{col}:** {row[col]}")
+
+        lines.extend(["", "### Bet slip", ""])
+        bets = bet_slip[bet_slip["status"] == "bet"]
+        if bets.empty:
+            reason = bet_slip.iloc[0]["rationale"]
+            lines.append(f"**No bet.** {reason}")
+        else:
+            lines.append("| Book | Market | Selection | Odds | Model p | De-vig p | Edge | EV | Stake |")
+            lines.append("|------|--------|-----------|------|---------|----------|------|-----|-------|")
+            for _, b in bets.iterrows():
+                lines.append(
+                    f"| {b['bookmaker']} | {b['market']} | {b['selection']} | {b['odds_taken']:.2f} | "
+                    f"{b['model_prob']:.3f} | {b['book_prob_devig']:.3f} | {b['edge']:.3f} | "
+                    f"{b['ev']:.3f} | ${b['stake']:.2f} |"
+                )
+            lines.extend(["", "#### Rationale", ""])
+            for _, b in bets.iterrows():
+                lines.append(f"- {b['rationale']}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "## Notes",
+            "",
+            "- Predictions use only information available before kickoff.",
+            "- Per-fixture slips also live under `data/processed/live/bet_slip_<match_id>.parquet`.",
+            "- Closing odds captured after this run feed CLV once results are settled.",
+            "- A positive EV bet is a recommendation on a mock bankroll, not financial advice.",
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def write_prediction_md(
     *,
     cfg: AppConfig,
@@ -300,67 +332,36 @@ def write_prediction_md(
     commit_hash: str,
     path: Path,
 ) -> None:
-    kickoff = kickoff_utc(cfg)
-    tm = cfg.target_match
-    lines = [
-        "# Pre-match prediction — Netherlands vs Sweden",
-        "",
-        f"**Generated (UTC):** {datetime.now(timezone.utc).isoformat()}",
-        f"**Git commit:** `{commit_hash}`",
-        f"**Kickoff (UTC):** {kickoff.isoformat()}",
-        f"**Model:** `{model_name}`",
-        "",
-        "## 1X2 probabilities",
-        "",
-        f"| Home ({tm.home}) | Draw | Away ({tm.away}) |",
-        "|---|---|---|",
-        f"| {pred.probs_1x2['home']:.1%} | {pred.probs_1x2['draw']:.1%} | {pred.probs_1x2['away']:.1%} |",
-        "",
-        "## Key features (pre-kickoff)",
-        "",
-    ]
-    row = features.iloc[0]
-    for col in ("home_elo_pre", "away_elo_pre", "elo_diff", "fifa_points_diff", "form_ppg_diff_5", "neutral"):
-        if col in row.index:
-            val = row[col]
-            lines.append(f"- **{col}:** {val}")
-
-    lines.extend(["", "## Bet slip", ""])
-    bets = bet_slip[bet_slip["status"] == "bet"]
-    if bets.empty:
-        reason = bet_slip.iloc[0]["rationale"]
-        lines.append(f"**No bet.** {reason}")
-    else:
-        lines.append("| Book | Market | Selection | Odds | Model p | De-vig p | Edge | EV | Stake |")
-        lines.append("|------|--------|-----------|------|---------|----------|------|-----|-------|")
-        for _, b in bets.iterrows():
-            lines.append(
-                f"| {b['bookmaker']} | {b['market']} | {b['selection']} | {b['odds_taken']:.2f} | "
-                f"{b['model_prob']:.3f} | {b['book_prob_devig']:.3f} | {b['edge']:.3f} | "
-                f"{b['ev']:.3f} | ${b['stake']:.2f} |"
+    fixture = load_live_fixtures(cfg)[0]
+    write_predictions_md(
+        cfg=cfg,
+        model_name=model_name,
+        results=[
+            FixtureRunResult(
+                fixture=fixture,
+                match_id=str(pred.match_id),
+                kickoff=fixture_kickoff(fixture),
+                features=features,
+                pred=pred,
+                market_probs=market_probs,
+                bet_slip=bet_slip,
             )
-        lines.extend(["", "### Rationale", ""])
-        for _, b in bets.iterrows():
-            lines.append(f"- {b['rationale']}")
-
-    lines.extend(
-        [
-            "",
-            "## Notes",
-            "",
-            "- Predictions use only information available before kickoff.",
-            "- Closing odds captured after this run will be used for CLV in post-match analysis.",
-            "- A positive EV bet is a recommendation on a mock bankroll, not financial advice.",
-        ]
+        ],
+        commit_hash=commit_hash,
+        path=path,
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def create_prematch_freeze(cfg: AppConfig, *, message: str | None = None) -> str:
-    """Commit live artifacts and tag prematch-freeze (only run this before kickoff)."""
+def create_prematch_freeze(
+    cfg: AppConfig,
+    *,
+    kickoff: pd.Timestamp,
+    message: str | None = None,
+) -> str:
+    """Commit live artifacts and tag prematch-freeze-<YYYYMMDD> (only before kickoff)."""
     root = project_root()
-    msg = message or f"Pre-match freeze: {cfg.target_match.home} vs {cfg.target_match.away}"
+    fx = load_live_fixtures(cfg)[0]
+    msg = message or f"Pre-match freeze: {fx.home} vs {fx.away}"
     paths = [
         "data/processed/live",
         "reports/PREDICTION.md",
@@ -374,7 +375,7 @@ def create_prematch_freeze(cfg: AppConfig, *, message: str | None = None) -> str
             subprocess.run(["git", "add", rel], cwd=root, check=True, timeout=30)
     subprocess.run(["git", "commit", "-m", msg], cwd=root, check=True, timeout=60)
     commit = git_commit()
-    tag = "prematch-freeze"
+    tag = matchday_tag(kickoff)
     subprocess.run(["git", "tag", "-f", tag, commit], cwd=root, check=True, timeout=30)
     logger.info("Created tag %s at %s", tag, commit)
     return commit
@@ -391,108 +392,166 @@ def run_live_predict(
     if cfg.scope != "live":
         logger.warning("config scope=%s (expected live for production freeze)", cfg.scope)
 
+    fixtures = load_live_fixtures(cfg)
     model_name = model_name or selected_model_name()
-    kickoff = kickoff_utc(cfg)
+    kickoffs = [fixture_kickoff(fx) for fx in fixtures]
+    as_of = min(kickoffs)
     now = pd.Timestamp(datetime.now(timezone.utc))
-    if now >= kickoff:
-        logger.warning("Current time is at or after kickoff — run is for dry-run/recovery only")
+    if now >= as_of:
+        logger.warning("Current time is at or after earliest kickoff — dry-run/recovery mode")
 
     if refresh:
         refresh_live_inputs(cfg)
 
-    features, target = build_live_features_row(cfg)
-    write_table(features, "features", LIVE_SUBDIR, sort_by=["match_id"], plan=PLAN, schema_name="features")
+    matches = read_table("matches", INTERIM)
+    ratings = read_table("ratings", INTERIM)
+    conditions = read_table("conditions", INTERIM)
+    venues = read_table("venues", INTERIM)
 
     train = load_model_features()
     train = train[train["result_1x2"].notna()]
-    train = train[pd.to_datetime(train["date_utc"], utc=True) < kickoff].reset_index(drop=True)
+    train = train[pd.to_datetime(train["date_utc"], utc=True) < as_of].reset_index(drop=True)
 
     try:
         odds = read_table("odds", INTERIM)
     except FileNotFoundError:
         odds = pd.DataFrame()
 
-    target_feat = features.iloc[0]
-    pred, fitted = predict_live(model_name, cfg, target_feat, train, odds)
-    pred_row = prediction_to_row(pred, model=model_name, match=target_feat)
-    preds_df = pd.DataFrame([pred_row]).drop(columns=["outcome"], errors="ignore")
-    preds_df["date_utc"] = pd.to_datetime(preds_df["date_utc"], utc=True).astype("datetime64[ns, UTC]")
-    if "has_scoreline" in preds_df.columns:
-        preds_df["has_scoreline"] = preds_df["has_scoreline"].astype("bool")
-    preds_df = validate_table(preds_df, "live_predictions")
-    write_table(preds_df, "predictions", LIVE_SUBDIR, sort_by=["match_id"], plan=PLAN, schema_name="live_predictions")
+    predictor = LivePredictor(model_name, cfg, odds, as_of=as_of)
+    predictor.fit(train)
 
-    market_probs = induce_live_markets(pred, model_name, model=fitted)
+    run_results: list[FixtureRunResult] = []
+    feature_frames: list[pd.DataFrame] = []
+    pred_frames: list[pd.DataFrame] = []
+    market_frames: list[pd.DataFrame] = []
+    slip_frames: list[pd.DataFrame] = []
+
+    for fixture in fixtures:
+        kickoff = fixture_kickoff(fixture)
+        features, target = build_live_features_for_fixture(
+            fixture, cfg, matches=matches, ratings=ratings, conditions=conditions, venues=venues
+        )
+        target_feat = features.iloc[0]
+        pred, fitted = predictor.predict(target_feat)
+        pred_row = prediction_to_row(pred, model=model_name, match=target_feat)
+        preds_df = pd.DataFrame([pred_row]).drop(columns=["outcome"], errors="ignore")
+        preds_df["date_utc"] = pd.to_datetime(preds_df["date_utc"], utc=True).astype("datetime64[ns, UTC]")
+        if "has_scoreline" in preds_df.columns:
+            preds_df["has_scoreline"] = preds_df["has_scoreline"].astype("bool")
+        preds_df = validate_table(preds_df, "live_predictions")
+
+        market_probs = induce_live_markets(pred, model_name, model=fitted)
+        bet_slip = build_live_bet_slip(
+            market_probs,
+            odds,
+            cfg,
+            match_id=str(target["match_id"]),
+            model=model_name,
+            kickoff=kickoff,
+        )
+        bet_slip = validate_table(bet_slip, "bet_slip")
+
+        match_id = str(target["match_id"])
+        write_table(
+            bet_slip,
+            f"bet_slip_{match_id}",
+            LIVE_SUBDIR,
+            sort_by=["status", "ev"],
+            plan=PLAN,
+            schema_name="bet_slip",
+        )
+
+        run_results.append(
+            FixtureRunResult(
+                fixture=fixture,
+                match_id=match_id,
+                kickoff=kickoff,
+                features=features,
+                pred=pred,
+                market_probs=market_probs,
+                bet_slip=bet_slip,
+            )
+        )
+        feature_frames.append(features)
+        pred_frames.append(preds_df)
+        market_frames.append(market_probs)
+        slip_frames.append(bet_slip)
+
+    all_features = pd.concat(feature_frames, ignore_index=True)
+    all_preds = pd.concat(pred_frames, ignore_index=True)
+    all_markets = pd.concat(market_frames, ignore_index=True)
+    all_slips = pd.concat(slip_frames, ignore_index=True)
+
+    write_table(all_features, "features", LIVE_SUBDIR, sort_by=["match_id"], plan=PLAN, schema_name="features")
+    write_table(all_preds, "predictions", LIVE_SUBDIR, sort_by=["match_id"], plan=PLAN, schema_name="live_predictions")
     write_table(
-        market_probs,
+        all_markets,
         "market_probs",
         LIVE_SUBDIR,
-        sort_by=["market", "selection"],
+        sort_by=["match_id", "market", "selection"],
         plan=PLAN,
         schema_name="market_probs",
     )
+    write_table(all_slips, "bet_slip", LIVE_SUBDIR, sort_by=["match_id", "status", "ev"], plan=PLAN, schema_name="bet_slip")
 
-    bet_slip = build_live_bet_slip(
-        market_probs,
-        odds,
-        cfg,
-        match_id=str(target["match_id"]),
-        model=model_name,
-        kickoff=kickoff,
-    )
-    bet_slip = validate_table(bet_slip, "bet_slip")
-    write_table(bet_slip, "bet_slip", LIVE_SUBDIR, sort_by=["status", "ev"], plan=PLAN, schema_name="bet_slip")
-
-    plot_live_figures(pred, model_name, cfg)
-    plot_live_edges(bet_slip)
+    if run_results:
+        plot_live_figures(run_results[0].pred, model_name, cfg)
+        plot_live_edges(all_slips)
 
     commit_hash = git_commit()
-    write_prediction_md(
+    write_predictions_md(
         cfg=cfg,
         model_name=model_name,
-        features=features,
-        pred=pred,
-        market_probs=market_probs,
-        bet_slip=bet_slip,
+        results=run_results,
         commit_hash=commit_hash,
         path=project_root() / REPORTS / "PREDICTION.md",
     )
 
     if freeze:
-        commit_hash = create_prematch_freeze(cfg)
-        write_prediction_md(
+        for kickoff in sorted(set(kickoffs)):
+            day_fixtures = [r for r in run_results if r.kickoff == kickoff]
+            label = ", ".join(f"{r.fixture.home} v {r.fixture.away}" for r in day_fixtures)
+            commit_hash = create_prematch_freeze(cfg, kickoff=kickoff, message=f"Pre-match freeze: {label}")
+        write_predictions_md(
             cfg=cfg,
             model_name=model_name,
-            features=features,
-            pred=pred,
-            market_probs=market_probs,
-            bet_slip=bet_slip,
+            results=run_results,
             commit_hash=commit_hash,
             path=project_root() / REPORTS / "PREDICTION.md",
         )
 
-    logger.info("Live prediction complete; model=%s bets=%d", model_name, int((bet_slip["status"] == "bet").sum()))
+    n_bets = int((all_slips["status"] == "bet").sum()) if not all_slips.empty else 0
+    logger.info(
+        "Live prediction complete; model=%s fixtures=%d bets=%d",
+        model_name,
+        len(run_results),
+        n_bets,
+    )
     return {
         "model": model_name,
-        "match_id": str(target["match_id"]),
+        "match_ids": [r.match_id for r in run_results],
         "commit_hash": commit_hash,
-        "n_bets": int((bet_slip["status"] == "bet").sum()),
-        "kickoff_utc": kickoff.isoformat(),
+        "n_bets": n_bets,
+        "kickoff_utc": as_of.isoformat(),
+        "n_fixtures": len(run_results),
     }
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Pre-match prediction for NL vs SWE, optional git freeze")
+    parser = argparse.ArgumentParser(description="Pre-match prediction for configured fixtures, optional git freeze")
     parser.add_argument("--model", default=None, help="Model (default: read from MODEL_SELECTION.md)")
     parser.add_argument("--refresh", action="store_true", help="Re-fetch raw data and rebuild interim tables")
-    parser.add_argument("--freeze", action="store_true", help="Commit artifacts and tag prematch-freeze")
+    parser.add_argument("--freeze", action="store_true", help="Commit artifacts and tag prematch-freeze-<date>")
     args = parser.parse_args(argv)
 
     get_config.cache_clear()
     cfg = load_config()
     set_seeds(cfg.seed)
     result = run_live_predict(cfg, model_name=args.model, refresh=args.refresh, freeze=args.freeze)
-    print(f"Live predict done: model={result['model']} commit={result['commit_hash']} bets={result['n_bets']}")
+    print(
+        f"Live predict done: model={result['model']} fixtures={result['n_fixtures']} "
+        f"commit={result['commit_hash']} bets={result['n_bets']}"
+    )
 
 
 if __name__ == "__main__":
