@@ -1,13 +1,13 @@
 # Live track record
 
-**Updated (UTC):** 2026-07-30T17:35:04.314404+00:00
+**Updated (UTC):** 2026-07-30T17:36:12.742828+00:00
 **Ledger rows:** 2
 
 ## Summary
 
 | Bets | Measurable CLV | Total staked | Total P&L | Bankroll |
 |---:|---:|---:|---:|---:|
-| 2 | 0 | $59.73 | $+43.91 | $1043.91 |
+| 2 | 0 | $51.00 | $+36.94 | $1036.94 |
 
 ### CLV
 
@@ -17,8 +17,8 @@ No measurable CLV yet. Single pre-kickoff snapshots are recorded with `measurabl
 
 | # | Match | Market | Selection | Stake | P&L | CLV | Measurable |
 |---:|---|---|---|---:|---:|---:|:---:|
-| 1 | `6fc2ebdea7fcb9d4` | 1x2 | home | $30.73 | $+22.74 | n/a | False |
-| 2 | `6fc2ebdea7fcb9d4` | 1x2 | home | $29.00 | $+21.17 | n/a | False |
+| 1 | `6fc2ebdea7fcb9d4` | 1x2 | home | $31.00 | $+22.94 | n/a | False |
+| 2 | `6fc2ebdea7fcb9d4` | totals | over_2.5 | $20.00 | $+14.00 | n/a | False |
 
 ## What this ledger records
 
