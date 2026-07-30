@@ -78,6 +78,17 @@ pytest                                          # full suite
 To freeze for a live match, set `scope: live` in `config/config.yaml` and run
 `python -m nlvswe.live.predict --refresh --freeze`, which writes the live artifacts and tags the commit `prematch-freeze`. Nothing that feeds the bet is allowed to change after that tag.
 
+## Track record
+
+Live bets accumulate in [`data/processed/live/ledger.parquet`](data/processed/live/ledger.parquet) every time you run `python -m nlvswe.live.settle`. Each row keeps stake, odds taken, closing line, CLV (when measurable), and P&L. Single pre-kickoff snapshots are flagged `measurable=False` rather than reported as CLV=0.
+
+Summary table and figure:
+
+- [`reports/TRACK_RECORD.md`](reports/TRACK_RECORD.md)
+- [`reports/figures/live_track_record.png`](reports/figures/live_track_record.png)
+
+One match cannot answer whether the model beats the market; the ledger is the running evidence base (meaningful after dozens of pre-registered bets, not one).
+
 ## Layout
 
 ```

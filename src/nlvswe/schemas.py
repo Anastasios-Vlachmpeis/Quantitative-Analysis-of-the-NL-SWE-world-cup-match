@@ -362,6 +362,18 @@ LIVE_RESULTS_SCHEMA = pa.DataFrameSchema(
     name="live_results",
 )
 
+LIVE_LEDGER_SCHEMA = pa.DataFrameSchema(
+    {
+        **LIVE_RESULTS_SCHEMA.columns,
+        "settled_at": pa.Column("datetime64[ns, UTC]", nullable=False),
+        "bet_seq": pa.Column(int, Check.ge(1), nullable=False),
+        "cumulative_pnl": pa.Column(float, nullable=False),
+        "bankroll": pa.Column(float, nullable=False),
+    },
+    strict=True,
+    name="live_ledger",
+)
+
 CANONICAL_SCHEMAS: dict[str, pa.DataFrameSchema] = {
     "teams": TEAMS_SCHEMA,
     "venues": VENUES_SCHEMA,
@@ -381,6 +393,7 @@ CANONICAL_SCHEMAS: dict[str, pa.DataFrameSchema] = {
     "live_predictions": LIVE_PREDICTIONS_SCHEMA,
     "bet_slip": BET_SLIP_SCHEMA,
     "live_results": LIVE_RESULTS_SCHEMA,
+    "live_ledger": LIVE_LEDGER_SCHEMA,
 }
 
 for _name, _schema in CANONICAL_SCHEMAS.items():

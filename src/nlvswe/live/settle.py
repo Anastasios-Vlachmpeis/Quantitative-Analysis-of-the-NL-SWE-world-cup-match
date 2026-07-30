@@ -12,6 +12,7 @@ import pandas as pd
 from nlvswe.betting.clv import clv_report
 from nlvswe.betting.strategy import settle_bet
 from nlvswe.config import AppConfig, get_config, load_config, project_root
+from nlvswe.live.ledger import append_to_ledger, refresh_track_record
 from nlvswe.io import read_table, write_table
 from nlvswe.logging import get_logger
 from nlvswe.schemas import validate_table
@@ -23,8 +24,15 @@ LIVE_SUBDIR = "processed/live"
 INTERIM = "interim"
 SCORE_RE = re.compile(r"^\s*(\d+)\s*[-:]\s*(\d+)\s*$")
 
-# Only results.parquet is written here; everything else must stay byte-identical
-MUTABLE_LIVE_ARTIFACTS = frozenset({"results.parquet", "results.manifest.json"})
+# Only post-match artifacts are written here; pre-freeze inputs stay byte-identical
+MUTABLE_LIVE_ARTIFACTS = frozenset(
+    {
+        "results.parquet",
+        "results.manifest.json",
+        "ledger.parquet",
+        "ledger.manifest.json",
+    }
+)
 
 
 def parse_score(score: str) -> tuple[int, int]:
@@ -233,6 +241,9 @@ def run_settle(
         plan=PLAN,
         schema_name="live_results",
     )
+
+    ledger = append_to_ledger(results, cfg=cfg)
+    refresh_track_record(ledger, cfg=cfg)
 
     after_hashes = hash_live_inputs()
     assert_live_inputs_unchanged(before_hashes, after_hashes)
