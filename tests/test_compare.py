@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nlvswe.eval.compare import align_predictions, build_leaderboard, pairwise_vs_reference
+from nlvswe.eval.compare import align_predictions, build_leaderboard, pairwise_vs_reference, rps_tie_clusters
 from nlvswe.eval.scoring import ranked_probability_score
 from nlvswe.models.base import validate_prediction
 from nlvswe.models.ensemble import (
@@ -106,6 +106,20 @@ def test_weighted_ensemble_uses_training_slice_only():
     assert len(spy.calls) >= 1
     # First scored match is s4 (index 3); its weight fit must use 3 prior rows only.
     assert spy.calls[0] == 3
+
+
+def test_rps_tie_clusters_overlap():
+    board = pd.DataFrame(
+        [
+            {"model": "a", "mean": 0.18, "ci_low": 0.17, "ci_high": 0.19},
+            {"model": "b", "mean": 0.181, "ci_low": 0.179, "ci_high": 0.183},
+            {"model": "c", "mean": 0.30, "ci_low": 0.28, "ci_high": 0.32},
+        ]
+    )
+    clusters = rps_tie_clusters(board)
+    flat = {m for group in clusters for m in group}
+    assert flat == {"a", "b", "c"}
+    assert any(set(group) == {"a", "b"} for group in clusters)
 
 
 def test_align_predictions_common_set():

@@ -226,6 +226,40 @@ def build_ensembles(
     return out
 
 
+def rps_tie_clusters(rps: pd.DataFrame) -> list[list[str]]:
+    # group models whose RPS bootstrap CIs overlap
+    if rps.empty:
+        return []
+    models = rps.sort_values("mean", kind="mergesort").reset_index(drop=True)
+    parent = {str(row["model"]): str(row["model"]) for _, row in models.iterrows()}
+
+    def find(node: str) -> str:
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    def union(left: str, right: str) -> None:
+        root_l, root_r = find(left), find(right)
+        if root_l != root_r:
+            parent[root_r] = root_l
+
+    names = [str(row["model"]) for _, row in models.iterrows()]
+    for i, left in enumerate(names):
+        row_l = models.iloc[i]
+        for j in range(i + 1, len(names)):
+            right = names[j]
+            row_r = models.iloc[j]
+            if float(row_l["ci_low"]) <= float(row_r["ci_high"]) and float(row_r["ci_low"]) <= float(row_l["ci_high"]):
+                union(left, right)
+
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(find(name), []).append(name)
+    order = {str(row["model"]): float(row["mean"]) for _, row in models.iterrows()}
+    return [sorted(group, key=lambda m: order[m]) for group in groups.values()]
+
+
 def plot_metric_bars(leaderboard: pd.DataFrame, metric: str, *, out_name: str) -> None:
     sub = leaderboard[leaderboard["metric"] == metric].sort_values("mean", kind="mergesort")
     if sub.empty:
@@ -238,7 +272,7 @@ def plot_metric_bars(leaderboard: pd.DataFrame, metric: str, *, out_name: str) -
     ax.set_yticklabels(sub["model"])
     ax.invert_yaxis()
     ax.set_xlabel(metric)
-    ax.set_title(f"Leaderboard — {metric} (lower is better)")
+    ax.set_title(f"Leaderboard: {metric} (lower is better)")
     style_figure(fig)
     style_axes(ax)
     save_figure(fig, out_name)
@@ -345,16 +379,29 @@ def write_model_selection_md(
     pairwise: pd.DataFrame,
     selection: dict,
     path: Path,
+    *,
+    n_matches: int = 0,
+    n_models: int = 0,
 ) -> None:
+    rps = leaderboard[leaderboard["metric"] == "rps"].sort_values("mean", kind="mergesort")
+    clusters = rps_tie_clusters(rps)
+    tie_lines = []
+    for cluster in clusters:
+        if len(cluster) > 1:
+            tie_lines.append(f"- `{', '.join(cluster)}`")
+    tie_block = "\n".join(tie_lines) if tie_lines else "- No multi-model tie clusters (each CI isolated)."
+
     lines = [
-        "# Model selection (Plan 08)",
+        "# Model selection",
         "",
         f"**Criterion:** {selection.get('criterion', 'RPS')}",
         "",
         f"**Selected model:** `{selection.get('pick')}`",
         f"**Walk-forward RPS:** {selection.get('pick_rps', float('nan')):.4f} "
         f"(95% CI {selection.get('pick_rps_ci', (float('nan'), float('nan')))[0]:.4f}"
-        f"–{selection.get('pick_rps_ci', (float('nan'), float('nan')))[1]:.4f})",
+        f"-{selection.get('pick_rps_ci', (float('nan'), float('nan')))[1]:.4f})",
+        "",
+        f"**Common match set:** {n_matches:,} matches scored by {n_models} models (intersection).",
         "",
         "## Market benchmark",
         "",
@@ -365,14 +412,15 @@ def write_model_selection_md(
         "| Rank | Model | RPS | 95% CI | Accuracy (footnote) |",
         "|------|-------|-----|--------|---------------------|",
     ]
-    rps = leaderboard[leaderboard["metric"] == "rps"].sort_values("mean", kind="mergesort")
     for _, row in rps.iterrows():
         acc = row.get("accuracy")
-        acc_s = f"{acc:.1%}" if pd.notna(acc) else "—"
+        acc_s = f"{acc:.1%}" if pd.notna(acc) else "n/a"
         lines.append(
             f"| {row['rank']} | `{row['model']}` | {row['mean']:.4f} | "
             f"[{row['ci_low']:.4f}, {row['ci_high']:.4f}] | {acc_s} |"
         )
+
+    lines.extend(["", "## Ties (overlapping RPS CIs)", "", tie_block])
 
     if not pairwise.empty:
         lines.extend(["", "## Pairwise vs market (RPS difference; negative = model better)", ""])
@@ -392,6 +440,7 @@ def write_model_selection_md(
             "",
             "- Selection uses walk-forward scores on the **intersection** of matches scored by all models.",
             "- Accuracy is descriptive only; RPS is the primary metric.",
+            "- Models listed under Ties share overlapping confidence intervals: treat rank gaps inside a cluster as noise.",
             "- If nothing beats the market, live betting should be framed as price-taker on soft markets only.",
         ]
     )
@@ -463,6 +512,8 @@ def run_compare(cfg: AppConfig | None = None) -> tuple[pd.DataFrame, pd.DataFram
         pairwise,
         selection,
         project_root() / REPORTS / "MODEL_SELECTION.md",
+        n_matches=len(match_ids),
+        n_models=len(frames),
     )
 
     rps_board = leaderboard[leaderboard["metric"] == "rps"]

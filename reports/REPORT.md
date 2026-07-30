@@ -40,6 +40,32 @@ Did anything beat the market? On internationals I can't really say, as there is 
 ![Walk-forward RPS leaderboard](figures/compare_rps_leaderboard.png)
 ![Calibration overlay across models](figures/compare_calibration_overlay.png)
 
+### Full ladder (append)
+
+Every rung now has walk-forward predictions on disk. Rescoring the **19,500-match
+intersection** (all eleven models) gives this RPS ordering. Models whose confidence
+intervals overlap are tied; the big cluster from `ensemble_weighted` through `elo`
+is one such group, so rank order inside it is noise.
+
+| Model | RPS | 95% CI |
+|---|---|---|
+| ensemble_weighted | 0.177 | [0.175, 0.178] |
+| ensemble_avg | 0.177 | [0.175, 0.179] |
+| bayesian | 0.179 | [0.177, 0.181] |
+| poisson | 0.180 | [0.178, 0.183] |
+| dixon_coles | 0.181 | [0.178, 0.183] |
+| bivariate_poisson | 0.181 | [0.179, 0.184] |
+| dixon_coles_v2 | 0.184 | [0.182, 0.185] |
+| ml | 0.186 | [0.184, 0.188] |
+| elo | 0.186 | [0.184, 0.188] |
+| baseline | 0.226 | [0.224, 0.227] |
+| constant | 0.228 | [0.226, 0.229] |
+
+`ml` landed where I expected: below the structured goal models, with no leakage
+smell in the feature-importance check. `bayesian` sits in the tied cluster near
+the top. `bivariate_poisson` is ~tied with `dixon_coles`, as expected. See
+`reports/MODEL_SELECTION.md` for the authoritative table and tie groups.
+
 ## From a scoreline to a bet
 
 A goal model gives a full grid of scoreline probabilities, which you sum into whatever market you care about. I computed each market two ways (exact summation, and a Monte Carlo over 10,000 simulated matches) and checked whether they agree within sampling error (they do). The picture for Netherlands vs Sweden: Netherlands clear favourites, most likely scoreline around 2-1, with an expected total near 3.7 goals.
