@@ -1,7 +1,7 @@
 # NL vs SWE — Quantitative Analysis
 # Python 3.11+ . Install into a fresh virtualenv:  pip install -r requirements.txt
 # Version floors are conservative; bump as needed. Pin exact versions before the
-# pre-match freeze (Plan 10) for reproducibility.
+# pre-match freeze for reproducibility.
 
 # --- data / IO ---
 pandas>=2.1
@@ -29,10 +29,10 @@ python-dotenv>=1.0    # load secrets (e.g. ODDS_API_KEY) from a gitignored .env
 joblib>=1.3            # model serialization
 pytest>=8.0            # tests
 
-# --- OPTIONAL: enable only if Plan 02 spike confirms xG coverage ---
+# --- OPTIONAL: enable only if spike confirms xG coverage ---
 # soccerdata>=1.8      # FBref / understat scraping for xG
 
-# --- Bayesian hierarchical (M6, Plan 15) ---
+# --- Bayesian hierarchical ---
 pymc>=5.10
 
-# --- REMOVED (Plan 12): arviz, tqdm, python-dateutil, statsmodels (zero import sites).
+# --- REMOVED : arviz, tqdm, python-dateutil, statsmodels (zero import sites).
