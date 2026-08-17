@@ -1,4 +1,4 @@
-# Netherlands vs Sweden: a pre-registered model and an honest post-mortem
+# a Quantitative Analysis of the Netherlands vs Sweden world cup match
 
 I built a statistical model to predict the FIFA World Cup 2026 match Netherlands vs Sweden, priced the bookmaker's markets against it, placed a small mock bet where my numbers disagreed with the market, and froze the whole thing in before kickoff.
 
