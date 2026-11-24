@@ -1,4 +1,4 @@
-# Netherlands vs Sweden: a model, a bet, and it's bias
+# An analysis of a predictive/betting framework + outcome on the Netherlands vs Sweden 2026 World Cup match 
 
 Final score: Netherlands 5 - Sweden 1. Both of my bets won!
 
